@@ -1,0 +1,4 @@
+Extract each field as a separate key-value pair of all image content.
+The json key (field) must use exactly copy the same word in the image. The json value should be meaningful and useful details.
+Do not use "_" (underscore/underline) in the value part.
+Return only JSON, nothing else.
