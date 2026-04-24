@@ -33,7 +33,7 @@ OCR_CONTRAST_FACTOR = float(os.getenv("OCR_CONTRAST_FACTOR", "1.08"))
 OCR_UNSHARP_RADIUS = float(os.getenv("OCR_UNSHARP_RADIUS", "1.2"))
 OCR_UNSHARP_PERCENT = int(os.getenv("OCR_UNSHARP_PERCENT", "140"))
 OCR_UNSHARP_THRESHOLD = int(os.getenv("OCR_UNSHARP_THRESHOLD", "2"))
-OCR_FIXED_SEED = os.getenv("OCR_FIXED_SEED", "").strip()
+OCR_FIXED_SEED = 42
 OCR_DETERMINISTIC = os.getenv("OCR_DETERMINISTIC", "1").lower() in {"1", "true", "yes"}
 
 
@@ -130,27 +130,16 @@ def _enable_deterministic_if_needed():
 
 def run_inference_optimized(prompt: str, images, max_new_tokens: int = None):
     """
-    Optional fixed-seed wrapper around v6 inference.
-    When OCR_FIXED_SEED is set, v6's per-request random seed is overridden.
+    Force fixed seed wrapper around v6 inference.
+    v9 always overrides v6 per-request random seed with OCR_FIXED_SEED.
     """
     if max_new_tokens is None:
         max_new_tokens = base.MAX_NEW_TOKENS
 
-    fixed_seed_value = os.getenv("OCR_FIXED_SEED", OCR_FIXED_SEED).strip()
-    if not fixed_seed_value:
-        return _BASE_RUN_INFERENCE_OPTIMIZED(prompt, images, max_new_tokens=max_new_tokens)
-
-    try:
-        seed = int(fixed_seed_value)
-    except ValueError:
-        logger.warning(
-            f"Invalid OCR_FIXED_SEED={fixed_seed_value!r}, "
-            "falling back to v6 random seed behavior"
-        )
-        return _BASE_RUN_INFERENCE_OPTIMIZED(prompt, images, max_new_tokens=max_new_tokens)
+    seed = OCR_FIXED_SEED
 
     _enable_deterministic_if_needed()
-    logger.info(f"Using fixed OCR seed from OCR_FIXED_SEED={seed}")
+    logger.info(f"Using hardcoded OCR fixed seed={seed}")
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
@@ -221,10 +210,7 @@ if __name__ == "__main__":
     logger.info(f"Chunk size: {base.MAX_CHUNK_SIZE}")
     logger.info(f"CPU workers: {args.cpu_workers}")
     logger.info(f"OCR deterministic mode: {OCR_DETERMINISTIC}")
-    if OCR_FIXED_SEED:
-        logger.info(f"OCR fixed seed enabled: {OCR_FIXED_SEED}")
-    else:
-        logger.info("OCR fixed seed disabled")
+    logger.info(f"OCR fixed seed (hardcoded): {OCR_FIXED_SEED}")
     logger.info(
         "OCR tuning: min_side=%s, max_upscale=%s, sharpness=%s, contrast=%s",
         OCR_TARGET_MIN_SIDE,
