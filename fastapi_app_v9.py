@@ -1,5 +1,5 @@
 """
-fastapi_app_v8.py
+fastapi_app_v9.py
 
 v8 is based on fastapi_app_v6 with OCR-focused image preprocessing tuning.
 Goal: reduce missing trailing characters in short codes (e.g. F0101 -> F010)
@@ -34,6 +34,7 @@ OCR_UNSHARP_RADIUS = float(os.getenv("OCR_UNSHARP_RADIUS", "1.2"))
 OCR_UNSHARP_PERCENT = int(os.getenv("OCR_UNSHARP_PERCENT", "140"))
 OCR_UNSHARP_THRESHOLD = int(os.getenv("OCR_UNSHARP_THRESHOLD", "2"))
 OCR_FIXED_SEED = os.getenv("OCR_FIXED_SEED", "").strip()
+OCR_DETERMINISTIC = os.getenv("OCR_DETERMINISTIC", "1").lower() in {"1", "true", "yes"}
 
 
 def preprocess_image(
@@ -112,6 +113,21 @@ async def preprocess_image_async(image: Image.Image) -> Image.Image:
 
 _BASE_RUN_INFERENCE_OPTIMIZED = base.run_inference_optimized
 
+def _enable_deterministic_if_needed():
+    """Best-effort deterministic settings."""
+    if not OCR_DETERMINISTIC:
+        return
+    try:
+        torch.use_deterministic_algorithms(True, warn_only=True)
+    except Exception as e:
+        logger.warning(f"Failed to enable deterministic algorithms: {e}")
+    if torch.cuda.is_available():
+        try:
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+        except Exception as e:
+            logger.warning(f"Failed to set cuDNN deterministic flags: {e}")
+
 def run_inference_optimized(prompt: str, images, max_new_tokens: int = None):
     """
     Optional fixed-seed wrapper around v6 inference.
@@ -120,15 +136,20 @@ def run_inference_optimized(prompt: str, images, max_new_tokens: int = None):
     if max_new_tokens is None:
         max_new_tokens = base.MAX_NEW_TOKENS
 
-    if not OCR_FIXED_SEED:
+    fixed_seed_value = os.getenv("OCR_FIXED_SEED", OCR_FIXED_SEED).strip()
+    if not fixed_seed_value:
         return _BASE_RUN_INFERENCE_OPTIMIZED(prompt, images, max_new_tokens=max_new_tokens)
 
     try:
-        seed = int(OCR_FIXED_SEED)
+        seed = int(fixed_seed_value)
     except ValueError:
-        logger.warning(f"Invalid OCR_FIXED_SEED={OCR_FIXED_SEED!r}, falling back to v6 random seed behavior")
+        logger.warning(
+            f"Invalid OCR_FIXED_SEED={fixed_seed_value!r}, "
+            "falling back to v6 random seed behavior"
+        )
         return _BASE_RUN_INFERENCE_OPTIMIZED(prompt, images, max_new_tokens=max_new_tokens)
 
+    _enable_deterministic_if_needed()
     logger.info(f"Using fixed OCR seed from OCR_FIXED_SEED={seed}")
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -199,6 +220,11 @@ if __name__ == "__main__":
     logger.info(f"Max image size: {base.MAX_IMAGE_SIZE}")
     logger.info(f"Chunk size: {base.MAX_CHUNK_SIZE}")
     logger.info(f"CPU workers: {args.cpu_workers}")
+    logger.info(f"OCR deterministic mode: {OCR_DETERMINISTIC}")
+    if OCR_FIXED_SEED:
+        logger.info(f"OCR fixed seed enabled: {OCR_FIXED_SEED}")
+    else:
+        logger.info("OCR fixed seed disabled")
     logger.info(
         "OCR tuning: min_side=%s, max_upscale=%s, sharpness=%s, contrast=%s",
         OCR_TARGET_MIN_SIDE,
